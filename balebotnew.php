@@ -141,7 +141,7 @@ function getBaleToken($log_file)
     ));
 
     $response = curl_exec($ch);
-    logData($log_file, "BALETOKEN", $response);
+    //logData($log_file, "BALETOKEN", $response);
     $res = json_decode(curl_exec($ch), true);
     curl_close($ch);
     return isset($res['access_token']) ? $res['access_token'] : null;
@@ -328,20 +328,20 @@ function getSubscriberInfoByMobile($baseUrl, $token, $mobileNo, $querytype, $abf
         ),
     ));
     $res = curl_exec($curl);
-    logData($abfacs_log_file, 'DEBUG', "url=$url,token=$token,result=$res");
+    //logData($abfacs_log_file, 'DEBUG', "url=$url,token=$token,result=$res");
     if (curl_errno($curl)) {
         $err = 'Curl error: ' . curl_error($curl);
         if ($abfacs_log_file)
             logData($abfacs_log_file, 'GETSUB_CURL_ERR', $err);
         curl_close($curl);
-        $r = ['error' => true, 'raw' => null, 'curl_error' => $err];
+        $r = ['error' => true, 'curl_error' => $err];
         return $r;
     }
     curl_close($curl);
-    if ($abfacs_log_file)
-        logData($abfacs_log_file, 'GETSUB_RESPONSE', $res);
+    //if ($abfacs_log_file)
+    //    logData($abfacs_log_file, 'GETSUB_RESPONSE', $res);
     $decoded = json_decode($res, true);
-    $r = ['error' => false, 'raw' => $res, 'json' => $decoded];
+    $r = ['error' => false, 'json' => $decoded];
     return $r;
 }
 
@@ -423,7 +423,8 @@ function sendSubscriberSummary($chat_id, $subItem, $bale_log_file)
     $subNo = $subItem['SubscriberNo'];
     $lastmeter = isset($subItem['lastmeter']) ? $subItem['lastmeter'] : 0;
     $lastread = isset($subItem['lastread']) ? $subItem['lastread'] : '';
-    if ($ownerName!='') {
+    if ($ownerName == '' &&  isset($subItem['InfoItems'])) {
+        echo "ownername:$ownerName\n";
         foreach ($subItem['InfoItems'] as $info) {
             if ($info['Code'] == 0) {
                 $cityCode = $info['Value'];
@@ -497,11 +498,6 @@ function sendSubscriberSummary($chat_id, $subItem, $bale_log_file)
 
 function sendmainmenu($chat_id, $accessToken, $abfacs_log_file, $sessions, $user_id, $bale_log_file, $session_file, $forceRefresh = false)
 {
-    if (!$accessToken) {
-        logData($abfacs_log_file, 'ERROR', 'No access token to call ABFACS');
-        sendMessageToBale($chat_id, "خطا در ارتباط با سیستم مشترکین.", $bale_log_file);
-        return;
-    }
     $phone = isset($sessions[$user_id]['phone']) ? $sessions[$user_id]['phone'] : null;
     if (!$phone) {
         sendMessageToBale($chat_id, "خطا:شماره تلفن یافت نشد /start را بزنید و دوباره شروع کنید.", $bale_log_file);
@@ -512,10 +508,11 @@ function sendmainmenu($chat_id, $accessToken, $abfacs_log_file, $sessions, $user
 
     // چک کردن اطلاعات کش شده در session
     $useCache = false;
-    if (!$forceRefresh && isset($sessions[$user_id]['subscribers']) && isset($sessions[$user_id]['last_update'])) {
-        // اگر اطلاعات کمتر از 30 دقیقه قدیمی باشد، از کش استفاده کن
+    if (!$forceRefresh && isset($sessions[$user_id]['subscribers']) && isset($sessions[$user_id]['last_update'])&&
+     isset($sessions['subscribers'][0]) && isset($sessions['subscribers'][0]['ownerName']) && $sessions['subscribers'][0]['ownerName']!='') {
+        // اگر اطلاعات کمتر از یک روز قدیمی باشد، از کش استفاده کن
         $cacheAge = time() - $sessions[$user_id]['last_update'];
-        if ($cacheAge < 86400) { // 1 روز = 86400 ثانیه
+        if ($cacheAge < 86400) { // یک روز = 86400 ثانیه
             $useCache = true;
             echo "Using cached subscriber data\n";
         }
@@ -534,23 +531,29 @@ function sendmainmenu($chat_id, $accessToken, $abfacs_log_file, $sessions, $user
         $lastUpdateTime = date('Y/m/d H:i', $sessions[$user_id]['last_update']);
         $row = '"reply_markup":{"inline_keyboard":[
                     [{"text" : "اضافه کردن اشتراک جدید", "callback_data" : "add_sub_' . $chat_id . '"}],
-                    [{"text" : "🔄 بروزرسانی اطلاعات", "callback_data" : "refresh_data_' . $user_id . '"}]
+                    [{"text" : " بروزرسانی اطلاعات", "callback_data" : "refresh_data_' . $user_id . '"}]
                 ]}';
         sendMessageToBale($chat_id, "آخرین بروزرسانی: " . $lastUpdateTime, $bale_log_file, $row);
         saveSessions($user_id, $sessions[$user_id]);
         return;
     }
 
+    if (!$accessToken) {
+        logData($abfacs_log_file, 'ERROR', 'No access token to call ABFACS');
+        sendMessageToBale($chat_id, "خطا در ارتباط با سیستم مشترکین.", $bale_log_file);
+        return;
+    }
     // دریافت اطلاعات جدید از وب سرویس
     $info = getSubscriberInfoByMobile(ABFACS_BASE, $accessToken, $phone, true, $abfacs_log_file);
     // بررسی خروجی
-    echo "info:" . print_r($info, true) . "\n";
+    //echo "info:" . print_r($info, true) . "\n";
     if ($info['error'] || (isset($info['json']['Execute']) && $info['json']['Execute'] === false)) {
-        sendMessageToBale($chat_id, "خطا در ارتباط با سامانه مشترکین لطفا بعدا تلاش کنید", $bale_log_file);
-        return;
-    } else {
-        $info = $info['json'];
+        if ($info["json"]["Message"] !== "subscriber count is zero!") {
+            sendMessageToBale($chat_id, "خطا در ارتباط با سامانه مشترکین لطفا بعدا تلاش کنید", $bale_log_file);
+            return;
+        }
     }
+    $info = $info['json'];
     if (!$info || empty($info['Items'])) {
         // هیچ رکوردی پیدا نشد
         sendMessageToBale($chat_id, "شماره شما در سیستم ثبت نشده.\\n برای ثبت شماره اشتراک و رمز رایانه قبض را وارد کنید (مثال: 1234567890 9875).", $bale_log_file);
@@ -572,7 +575,7 @@ function sendmainmenu($chat_id, $accessToken, $abfacs_log_file, $sessions, $user
         $updateTime = date('Y/m/d H:i', $sessions[$user_id]['last_update']);
         $row = '"reply_markup":{"inline_keyboard":[
                     [{"text" : "اضافه کردن اشتراک جدید", "callback_data" : "add_sub_' . $chat_id . '"}],
-                    [{"text" : "🔄 بروزرسانی اطلاعات", "callback_data" : "refresh_data_' . $user_id . '"}]
+                    [{"text" : " بروزرسانی اطلاعات", "callback_data" : "refresh_data_' . $user_id . '"}]
                 ]}';
         sendMessageToBale($chat_id, "آخرین بروزرسانی: " . $updateTime, $bale_log_file, $row);
         saveSessions($user_id, $sessions[$user_id]);
@@ -677,16 +680,20 @@ function declareMeter1522($subscriberNo, $meterNo, $phone, $computerpass, $logFi
         $billguid = $calcResult->CalculateMidtermBillFor1522Result->BillGuId;
         $amount = $calcResult->CalculateMidtermBillFor1522Result->Amount;
         $resultMessage = $calcResult->CalculateMidtermBillFor1522Result->resultMessage;
-        echo "status:$status,billguid:$billguid,ampunt:$amount,result:$resultMessage\n";
+        echo "status:$status,billguid:$billguid,amount:$amount,result:$resultMessage\n";
         // 3. بازگرداندن نتیجه شامل GlobalCode برای ثبت نهایی قبض
         $saveParams = [
             'BillGuId' => $billguid,
             'username' => ABFACS_USER,
             'password' => ABFACS_PASS
         ];
+        echo "saving:SaveMidtermBill,params:".print_r($saveParams,true)."\n";
         $saveResult = $client->SaveMidtermBill($saveParams);
-        if (!isset($saveResult->SaveMidtermBillResult->Status) ||
-            $saveResult->SaveMidtermBillResult->Status < 1 ) {
+        echo "saved:SaveMidtermBill\n";
+        if (
+            !isset($saveResult->SaveMidtermBillResult->Status) ||
+            $saveResult->SaveMidtermBillResult->Status < 1
+        ) {
             logData($logFile, "SaveMidtermBill failed ", print_r($saveResult, true));
             return ['success' => false, 'statusMessage' => $saveResult->SaveMidtermBillResult->resultMessage];
         }
@@ -701,7 +708,7 @@ function declareMeter1522($subscriberNo, $meterNo, $phone, $computerpass, $logFi
 
     } catch (Exception $e) {
         logData($logFile, "SOAP error in declareMeter1522: ", $e->getMessage());
-        return ['success' => false, 'statusMessage' => $e->getMessage()];
+        return ['success' => false, 'statusMessage' => $resultMessage];
     }
 }
 
@@ -880,7 +887,7 @@ while (true) {
                         }
                         sendMessageToBale($chat_id, "✅شماره تلفن تایید شد.", $bale_log_file);
                         $sessions[$user_id]['step'] = 'got_phone';
-                        echo "session-id".print_r($sessions[$user_id])."\n";
+                        echo "session-id" . print_r($sessions[$user_id]) . "\n";
                         unset($sessions[$user_id]['otp']);
                         unset($sessions[$user_id]['otp_time']);
                         saveSessions($user_id, $sessions[$user_id]);
@@ -919,6 +926,13 @@ while (true) {
                     //logData($abfacs_log_file, 'GET_SUBSC_INFO', "Request to register phone: scode=$billId, pass=$password, phone=$phone");
 
                     $info = getSubscriberInfoByMobile(ABFACS_BASE, $accessToken, $billId, false, $abfacs_log_file);
+                    if ($info['error'] || (isset($info['json']['Execute']) && $info['json']['Execute'] === false)) {
+                        if ($info["json"]["Message"] !== "subscriber count is zero!") {
+                            sendMessageToBale($chat_id, "خطا در ارتباط با سامانه مشترکین لطفا بعدا تلاش کنید", $bale_log_file);
+                            continue;
+                        }
+                    }
+                    $info = $info['json'];
                     if (!$info || (isset($info['Execute']) && $info['Execute'] === false) || empty($info['Items'])) {
                         // هیچ رکوردی پیدا نشد
                         sendMessageToBale($chat_id, "شماره اشتراک یا رمز رایانه اشتباه است.).", $bale_log_file);
@@ -976,7 +990,7 @@ while (true) {
                             sendMessageToBale($chat_id, "شماره با موفقیت ثبت شد.", $bale_log_file);
 
                             // بروز رسانی سشن: گرفتن دوباره اطلاعات اشتراک و ذخیره برای نمایش جزئیات بعدی
-                            sendmainmenu($chat_is, $accessToken, $abfacs_log_file, $sessions, $user_id, $bale_log_file, $session_file);
+                            sendmainmenu($chat_id, $accessToken, $abfacs_log_file, $sessions, $user_id, $bale_log_file, $session_file,true);
 
                         } else {
                             sendMessageToBale($chat_id, "خطا در ثبت شماره " . (isset($updateResult['message']) ? $updateResult['message'] : 'خطا'), $bale_log_file);
