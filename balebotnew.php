@@ -707,7 +707,18 @@ function declareMeter1522($subscriberNo, $meterNo, $phone, $computerpass, $logFi
         ];
 
     } catch (Exception $e) {
-        logData($logFile, "SOAP error in declareMeter1522: ", $e->getMessage());
+    // Log detailed error information
+    logData($logFile, "SOAP_ERROR", [
+        'message' => $e->getMessage(),
+        'code' => $e->getCode(),
+        'file' => $e->getFile(),
+        'line' => $e->getLine(),
+        'trace' => $e->getTraceAsString(),
+        'last_request' => $client->__getLastRequest(),
+        'last_response' => $client->__getLastResponse(),
+        'last_request_headers' => $client->__getLastRequestHeaders(),
+        'last_response_headers' => $client->__getLastResponseHeaders()
+    ]);
         return ['success' => false, 'statusMessage' => $resultMessage];
     }
 }
