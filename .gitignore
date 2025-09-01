@@ -1,0 +1,23 @@
+# فایل‌های سیستمی
+.DS_Store
+Thumbs.db
+
+# فایل‌های محیطی و تنظیمات
+.env
+.env.*
+!.env.example
+
+# فایل‌های موقت و کش
+*.log
+*.cache
+*.tmp
+sessions.json
+*.bak*
+
+# فایل‌های فشرده
+*.rar
+*.zip
+*.7z
+
+# فایل‌های vendor اگر از composer استفاده می‌کنید
+/vendor/
